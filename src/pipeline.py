@@ -18,7 +18,7 @@ def run_rag_pipeline(
     retrieved_chunks = retrieve_relevant_chunks(question, model, index, metadata, k=k)
 
     sources = [
-        {"source": c["source"], "chunk_index": c["chunk_index"], "score": c["score"]}
+        {"source": c["source"], "chunk_index": c["chunk_index"], "score": c["score"],"text": c["text"]}
         for c in retrieved_chunks
     ]
 
