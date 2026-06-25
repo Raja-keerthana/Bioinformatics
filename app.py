@@ -1,5 +1,4 @@
 
-
 import streamlit as st
 
 from src.config import EMBEDDING_MODEL_NAME, LLM_MODEL_NAME
@@ -8,7 +7,7 @@ from src.chunking import build_chunks
 from src.embeddings import load_embedding_model, generate_embeddings
 from src.vector_store import build_faiss_index, build_metadata_store
 from src.llm import load_llm
-from src.pipeline import run_rag_pipeline
+from src.pipeline import run_rag_pipeline, generate_literature_review
 
 
 st.set_page_config(
@@ -18,9 +17,17 @@ st.set_page_config(
 )
 
 
+# Session state
 
 def init_session_state():
-    
+    """
+    Loads the embedding model and LLM exactly once per browser session
+    and stores them in st.session_state, so they are never reloaded on
+    a rerun (Streamlit reruns the whole script on every interaction,
+    but st.session_state persists across those reruns). All other
+    state defaults to "nothing processed yet" until the user uploads
+    and processes documents.
+    """
     if "embedding_model" not in st.session_state:
         with st.spinner("Loading embedding model..."):
             st.session_state.embedding_model = load_embedding_model()
@@ -37,12 +44,16 @@ def init_session_state():
         "status": "Not started",
         "last_question": None,
         "last_result": None,
+        "literature_review": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
+# ----------------------------------------------------------------------
+# Backend orchestration 
+# ----------------------------------------------------------------------
 
 def process_uploaded_files(uploaded_files):
    
@@ -69,9 +80,9 @@ def process_uploaded_files(uploaded_files):
     return pdf_results, chunks, faiss_index, chunk_metadata
 
 
-
+# ----------------------------------------------------------------------
 # Sidebar
-
+# ----------------------------------------------------------------------
 
 def render_sidebar():
     with st.sidebar:
@@ -103,9 +114,9 @@ def render_sidebar():
             st.info(st.session_state.status)
 
 
-
+# ----------------------------------------------------------------------
 # Main page sections
-
+# ----------------------------------------------------------------------
 
 def render_upload_section():
     st.header("1. Upload documents")
@@ -155,26 +166,13 @@ def render_conversation(question, result):
     if not result["sources"]:
         st.caption("No sources were retrieved for this question.")
         return
-    
-    for i, s in enumerate(result["sources"], start=1):
-        with st.expander(f"Source {i}: {s['source']} · chunk {s['chunk_index']}"):
-            col1, col2 = st.columns(2)
 
+    for i, s in enumerate(result["sources"], start=1):
+        with st.expander(f"Source {i}: {s['source']}  ·  chunk {s['chunk_index']}"):
+            col1, col2 = st.columns(2)
             col1.metric("Chunk index", s["chunk_index"])
             col2.metric("Similarity score", f"{s['score']:.4f}")
-            
-
-            st.markdown("**Preview**")
-
-            preview_text = s["text"][:500]
-
-            if len(s["text"]) > 500:
-                 preview_text += "..."
-
-            st.text(preview_text)
-
             st.caption("Lower similarity score means a closer match.")
-    
 
 
 def render_qa_section():
@@ -185,7 +183,7 @@ def render_qa_section():
         placeholder="e.g. What biomarkers are used in breast cancer?",
         label_visibility="collapsed",
     )
-    ask_clicked = st.button("Ask", type="primary")
+    ask_clicked = st.button("Ask Question", type="primary")
 
     if ask_clicked:
         if st.session_state.faiss_index is None:
@@ -208,9 +206,42 @@ def render_qa_section():
         render_conversation(st.session_state.last_question, st.session_state.last_result)
 
 
+def render_literature_review_section():
+    
+    st.header("3. Generate Literature Review")
+    st.caption(
+        "Synthesizes a structured review across every uploaded document. "
+        "This runs several model calls in sequence and may take a few minutes."
+    )
 
+    review_clicked = st.button("Generate Literature Review", type="primary")
+
+    if review_clicked:
+        if st.session_state.faiss_index is None:
+            st.error("Please upload and process at least one PDF first.")
+        else:
+            with st.status("Generating literature review...", expanded=True) as status:
+                st.write("📑 Summarizing each document...")
+                st.write("🧩 Combining document summaries into a corpus digest...")
+                st.write("✍️ Writing each review section...")
+                review = generate_literature_review(
+                    st.session_state.chunk_metadata,
+                    st.session_state.llm_pipeline,
+                )
+                status.update(label="✅ Literature review ready", state="complete", expanded=False)
+
+            st.session_state.literature_review = review
+
+    if st.session_state.literature_review:
+        st.divider()
+        for section_title, section_text in st.session_state.literature_review.items():
+            st.subheader(section_title)
+            st.write(section_text)
+
+
+# ----------------------------------------------------------------------
 # Entry point
-
+# ----------------------------------------------------------------------
 
 def main():
     init_session_state()
@@ -222,6 +253,8 @@ def main():
     render_upload_section()
     st.divider()
     render_qa_section()
+    st.divider()
+    render_literature_review_section()
 
 
 if __name__ == "__main__":
