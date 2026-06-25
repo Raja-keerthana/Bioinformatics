@@ -6,3 +6,5 @@ transformers
 sentencepiece
 torch
 numpy
+google-generativeai
+python-dotenv

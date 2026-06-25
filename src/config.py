@@ -12,10 +12,11 @@ CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
 # Embeddings
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+
+EMBEDDING_MODEL_NAME = "BAAI/bge-base-en-v1.5"
 
 # Retrieval
-TOP_K = 3
+TOP_K = 5
 
 # Generation
 LLM_MODEL_NAME = "google/flan-t5-small"
