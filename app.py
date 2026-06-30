@@ -7,7 +7,11 @@ from src.chunking import build_chunks
 from src.embeddings import load_embedding_model, generate_embeddings
 from src.vector_store import build_faiss_index, build_metadata_store
 from src.llm import load_llm
-from src.pipeline import run_rag_pipeline
+
+from src.pipeline import (
+    run_rag_pipeline,
+    generate_literature_review,
+)
 
 st.set_page_config(
     page_title="Document RAG Assistant",
@@ -32,6 +36,7 @@ def init_session_state():
         "status": "Not started",
         "last_question": None,
         "last_result": None,
+        "literature_review": None,
     }
 
     for key, value in defaults.items():
@@ -202,6 +207,32 @@ def render_qa_section():
             st.session_state.last_result,
         )
 
+    
+def render_literature_review_section():
+    st.header("3. Generate Literature Review")
+
+    if st.button("Generate Literature Review", type="primary"):
+
+        if st.session_state.chunk_metadata is None:
+            st.error("Please upload and process documents first.")
+            return
+
+        with st.spinner("Generating literature review..."):
+
+            review = generate_literature_review(
+                chunk_metadata=st.session_state.chunk_metadata,
+                llm_pipeline=st.session_state.llm_pipeline,
+            )
+
+        st.session_state.literature_review = review
+
+    if st.session_state.literature_review:
+
+        st.subheader("Literature Review")
+
+        for title, content in st.session_state.literature_review.items():
+            with st.expander(title, expanded=True):
+                st.write(content)
 
 def main():
     init_session_state()
@@ -213,6 +244,8 @@ def main():
     render_upload_section()
     st.divider()
     render_qa_section()
+    st.divider()
+    render_literature_review_section()
 
 
 if __name__ == "__main__":

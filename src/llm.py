@@ -79,3 +79,30 @@ def generate_answer_gemini(prompt: str) -> str:
 
     except Exception as e:
         return f"Gemini Error: {e}"
+
+def build_summary_prompt(text: str) -> str:
+    return f"""Summarize the key points of the following research text in 2-3 sentences. Stay strictly within the information given; do not add outside knowledge.
+
+Text: {text}"""
+
+
+def build_reduce_summaries_prompt(summaries: str) -> str:
+    return f"""Combine the following summaries into a single, more concise summary that preserves the most important point from each one. Do not add information that isn't present in the summaries.
+
+Summaries:
+{summaries}"""
+
+
+def build_section_prompt(
+    section_title: str,
+    section_instruction: str,
+    digest: str,
+) -> str:
+    return f"""Write the "{section_title}" section of a literature review, using only the information in the digest below.
+
+{section_instruction}
+
+If the digest does not contain relevant information for this section, state that clearly instead of guessing.
+
+Digest of the source documents:
+{digest}"""
