@@ -1,4 +1,4 @@
-from src.config import TOP_K, MAX_DISTANCE
+from src.config import TOP_K, MAX_DISTANCE, HYBRID_MAX_DISTANCE
 from src.retriever import retrieve_relevant_chunks
 from src.llm import (
     build_context,
@@ -11,7 +11,7 @@ from src.llm import (
 
 
 # ------------------------------------------------------------------
-# Question Answering 
+# Question Answering
 # ------------------------------------------------------------------
 
 def run_rag_pipeline(
@@ -23,10 +23,15 @@ def run_rag_pipeline(
     generator: str = "local",
     k: int = TOP_K,
     max_distance: float = MAX_DISTANCE,
+    bm25_index=None,
 ) -> dict:
     
+    effective_max_distance = (
+        HYBRID_MAX_DISTANCE if bm25_index is not None else max_distance
+    )
+
     retrieved_chunks = retrieve_relevant_chunks(
-        question, model, index, metadata, k=k,
+        question, model, index, metadata, k=k, bm25_index=bm25_index,
     )
 
     sources = [
@@ -48,7 +53,7 @@ def run_rag_pipeline(
 
     best_score = min(c["score"] for c in retrieved_chunks)
 
-    if best_score > max_distance:
+    if best_score > effective_max_distance:
         return {
             "question": question,
             "sources": sources,
@@ -70,9 +75,7 @@ def run_rag_pipeline(
 # Literature Review 
 # ------------------------------------------------------------------
 
-
 _MAX_CHARS_PER_DOCUMENT = 30_000
-
 
 _SECTION_KEYS = [
     "Executive Summary",
@@ -93,9 +96,9 @@ def _prepare_document_text(chunks: list, max_chars: int = _MAX_CHARS_PER_DOCUMEN
 def _normalize_heading(line: str) -> str:
     
     text = line.strip()
-    text = text.lstrip("#").strip()   # remove ## / # prefixes
-    text = text.strip("*").strip()    # remove ** bold markers
-    text = text.rstrip(":").strip()   # remove trailing colon
+    text = text.lstrip("#").strip()
+    text = text.strip("*").strip()
+    text = text.rstrip(":").strip()
     return text
 
 
@@ -107,28 +110,21 @@ def _parse_sections(review_text: str, section_keys: list) -> dict:
 
     for line in review_text.splitlines():
         normalized = _normalize_heading(line)
-
-        # Case-insensitive match against known section keys
         matched = next(
             (k for k in section_keys if k.lower() == normalized.lower()),
             None,
         )
-
         if matched:
-            # Flush accumulated buffer to the previous section
             if current_key is not None:
                 sections[current_key] = "\n".join(buffer).strip()
             current_key = matched
             buffer = []
         elif current_key is not None:
-           
             buffer.append(line)
 
-    
     if current_key is not None:
         sections[current_key] = "\n".join(buffer).strip()
 
-    
     if all(not v.strip() for v in sections.values()):
         sections[section_keys[0]] = review_text.strip()
 
@@ -142,36 +138,25 @@ def _summarize_document(source_name: str, chunks: list) -> str:
     return generate_answer_gemini(prompt)
 
 
-# ------------------------------------------------------------------
-# Literature Review 
-# ------------------------------------------------------------------
-
 def generate_literature_review(
     chunk_metadata: list,
-    llm_pipeline: dict,       
+    llm_pipeline: dict,
 ) -> dict:
     
     if not chunk_metadata:
         return {k: "No documents have been uploaded yet." for k in _SECTION_KEYS}
 
-    # Group chunks by source document, preserving insertion order so
-    # documents are processed in the order they were indexed.
     chunks_by_source: dict = {}
     for chunk in chunk_metadata:
         chunks_by_source.setdefault(chunk["source"], []).append(chunk)
 
-    # Stage 1: summarize each document (one Gemini call per document)
-    document_summaries = []
-    for source_name, chunks in chunks_by_source.items():
-        summary = _summarize_document(source_name, chunks)
-        document_summaries.append(f"Document: {source_name}\n{summary}")
+    document_summaries = [
+        f"Document: {source}\n{_summarize_document(source, chunks)}"
+        for source, chunks in chunks_by_source.items()
+    ]
 
-    combined_summaries = "\n\n".join(document_summaries)
-
-    # Stage 2: synthesize the final review (one Gemini call total)
     review_text = generate_answer_gemini(
-        build_final_review_prompt(combined_summaries)
+        build_final_review_prompt("\n\n".join(document_summaries))
     )
 
-    
     return _parse_sections(review_text, _SECTION_KEYS)
