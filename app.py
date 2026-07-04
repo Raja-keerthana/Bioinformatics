@@ -4,9 +4,16 @@ from src.config import EMBEDDING_MODEL_NAME, LLM_MODEL_NAME
 from src.pdf_loader import extract_text_from_pdfs
 from src.chunking import build_chunks
 from src.embeddings import load_embedding_model, generate_embeddings
-from src.vector_store import build_faiss_index, build_metadata_store, build_bm25_index  
+from src.vector_store import build_faiss_index, build_metadata_store, build_bm25_index
 from src.llm import load_llm
 from src.pipeline import run_rag_pipeline, generate_literature_review
+from src.evaluator import (                      # ← new import for dashboard
+    compute_metrics,
+    build_similarity_bar_chart,
+    build_source_pie_chart,
+    build_contribution_pie_chart,
+    build_timing_chart,
+)
 
 
 st.set_page_config(
@@ -21,11 +28,6 @@ st.set_page_config(
 # ------------------------------------------------------------------
 
 def init_session_state():
-    """
-    Loads the embedding model and local LLM once per session and stores
-    them in st.session_state so they are never reloaded on a rerun.
-    All other state defaults to "nothing processed yet".
-    """
     if "embedding_model" not in st.session_state:
         with st.spinner("Loading embedding model..."):
             st.session_state.embedding_model = load_embedding_model()
@@ -37,7 +39,7 @@ def init_session_state():
     defaults = {
         "faiss_index": None,
         "chunk_metadata": None,
-        "bm25_index": None,           
+        "bm25_index": None,
         "processed_files": [],
         "num_chunks": 0,
         "status": "Not started",
@@ -56,7 +58,6 @@ def init_session_state():
 # ------------------------------------------------------------------
 
 def process_uploaded_files(uploaded_files):
-   
     uploaded_dict = {f.name: f.getvalue() for f in uploaded_files}
 
     with st.status("Processing documents...", expanded=True) as status:
@@ -77,8 +78,8 @@ def process_uploaded_files(uploaded_files):
         faiss_index = build_faiss_index(embeddings)
         chunk_metadata = build_metadata_store(chunks)
 
-        st.write("🔍 Building BM25 index...")          
-        bm25_index = build_bm25_index(chunks)          
+        st.write("🔍 Building BM25 index...")
+        bm25_index = build_bm25_index(chunks)
 
         status.update(
             label="✅ Ready for questions",
@@ -86,7 +87,7 @@ def process_uploaded_files(uploaded_files):
             expanded=False,
         )
 
-    return pdf_results, chunks, faiss_index, chunk_metadata, bm25_index 
+    return pdf_results, chunks, faiss_index, chunk_metadata, bm25_index
 
 
 # ------------------------------------------------------------------
@@ -139,7 +140,6 @@ def render_upload_section():
     )
 
     if uploaded_files and st.button("Process documents", type="primary"):
-        
         pdf_results, chunks, faiss_index, chunk_metadata, bm25_index = (
             process_uploaded_files(uploaded_files)
         )
@@ -149,7 +149,7 @@ def render_upload_section():
 
         st.session_state.faiss_index = faiss_index
         st.session_state.chunk_metadata = chunk_metadata
-        st.session_state.bm25_index = bm25_index          
+        st.session_state.bm25_index = bm25_index
         st.session_state.processed_files = succeeded
         st.session_state.num_chunks = len(chunks)
         st.session_state.status = (
@@ -234,7 +234,7 @@ def render_qa_section():
                     metadata=st.session_state.chunk_metadata,
                     llm_pipeline=st.session_state.llm_pipeline,
                     generator="gemini" if generator == "Gemini 2.5 Flash" else "local",
-                    bm25_index=st.session_state.bm25_index,   # ← new: pass BM25 index
+                    bm25_index=st.session_state.bm25_index,
                 )
 
             st.session_state.last_question = question
@@ -271,6 +271,106 @@ def render_literature_review_section():
                 st.write(content)
 
 
+def render_evaluation_dashboard():
+    
+    st.header("4. Evaluation Dashboard")
+
+    if not st.session_state.last_result:
+        st.info("Ask a question in Section 2 to populate the dashboard.")
+        return
+
+    result = st.session_state.last_result
+    metrics = compute_metrics(
+        result,
+        num_pdfs=len(st.session_state.processed_files),
+        total_chunks_indexed=st.session_state.num_chunks,
+    )
+
+    # ------------------------------------------------------------------
+    # 4A: Retrieval Metrics
+    # ------------------------------------------------------------------
+    st.subheader("Retrieval Metrics")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric(
+        "Retrieval Time",
+        f"{metrics['retrieval_time_ms']:.1f} ms",
+    )
+    col2.metric(
+        "Generation Time",
+        f"{metrics['generation_time_ms']:.1f} ms",
+    )
+    col3.metric(
+        "Total Response Time",
+        f"{metrics['total_time_ms']:.1f} ms",
+    )
+
+    col4, col5, col6 = st.columns(3)
+    col4.metric("Uploaded PDFs", metrics["num_pdfs"])
+    col5.metric("Indexed Chunks", metrics["total_chunks_indexed"])
+    col6.metric("Retrieved Chunks", metrics["num_retrieved_chunks"])
+
+    st.divider()
+
+    # ------------------------------------------------------------------
+    # 4B: Answer Information
+    # ------------------------------------------------------------------
+    st.subheader("Answer Information")
+
+    model_label = (
+        "Gemini 2.5 Flash"
+        if metrics["generator"] == "gemini"
+        else "Local FLAN-T5"
+    )
+
+    col7, col8, col9, col10 = st.columns(4)
+    col7.metric("Model Used", model_label)
+    col8.metric("Answer Length", f"{metrics['answer_length']} chars")
+    col9.metric("Prompt Length", f"{metrics['prompt_length']} chars")
+    col10.metric("Context Length", f"{metrics['context_length']} chars")
+
+    st.divider()
+
+    # ------------------------------------------------------------------
+    # 4C: Visualizations — row 1
+    # ------------------------------------------------------------------
+    st.subheader("Visualizations")
+
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.plotly_chart(
+            build_similarity_bar_chart(result["sources"]),
+            use_container_width=True,
+        )
+
+    with col_right:
+        st.plotly_chart(
+            build_source_pie_chart(metrics["source_counts"]),
+            use_container_width=True,
+        )
+
+    # ------------------------------------------------------------------
+    # 4D: Visualizations — row 2
+    # ------------------------------------------------------------------
+    col_left2, col_right2 = st.columns(2)
+
+    with col_left2:
+        st.plotly_chart(
+            build_contribution_pie_chart(metrics["contribution_counts"]),
+            use_container_width=True,
+        )
+
+    with col_right2:
+        st.plotly_chart(
+            build_timing_chart(
+                metrics["retrieval_time_ms"],
+                metrics["generation_time_ms"],
+            ),
+            use_container_width=True,
+        )
+
+
 # ------------------------------------------------------------------
 # Entry point
 # ------------------------------------------------------------------
@@ -287,6 +387,8 @@ def main():
     render_qa_section()
     st.divider()
     render_literature_review_section()
+    st.divider()
+    render_evaluation_dashboard()    
 
 
 if __name__ == "__main__":
