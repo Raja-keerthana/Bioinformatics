@@ -9,7 +9,7 @@ The system combines **semantic retrieval (FAISS)** and **keyword retrieval (BM25
 
 ## 🚀 Demo
 
-Upload cancer research PDFs → ask questions → retrieve relevant passages → generate grounded answers with source attribution and retrieval/performance metrics.
+Upload  research PDFs → ask questions → retrieve relevant passages → generate grounded answers with source attribution and retrieval/performance metrics.
 
 ---
 
