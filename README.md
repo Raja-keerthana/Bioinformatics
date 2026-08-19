@@ -90,12 +90,6 @@ Upload cancer research PDFs → ask questions → retrieve relevant passages →
 ```text
 document-rag-assistant/
 │
-├── app.py
-├── requirements.txt
-├── .env
-├── .gitignore
-├── README.md
-│
 ├── src/
 │   ├── config.py
 │   ├── pdf_loader.py
@@ -108,16 +102,12 @@ document-rag-assistant/
 │   ├── pipeline.py
 │   └── evaluator.py
 │
-├── data/
-│   ├── uploads/
-│   └── index/
-│
-├── notebooks/
-│   └── cancer_rag_dev.ipynb
-│
-└── tests/
-    └── test_pipeline.py
-```
+├── .gitignore
+├── README.md
+├── app.py
+├── requirements.txt
+├── test_imports.py
+└── test_pipeline.py
 
 ---
 
